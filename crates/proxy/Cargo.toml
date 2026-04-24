@@ -1,0 +1,40 @@
+[package]
+name = "tokenova-proxy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Universal API proxy — intercepts, classifies, and forwards AI calls to upstream providers (PRD §5.1)."
+
+[[bin]]
+name = "tokenova-proxy"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+tokenova-domain = { path = "../domain" }
+tokenova-classifier = { path = "../classifier" }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+http = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }

@@ -1,0 +1,35 @@
+[package]
+name = "tokenova-classifier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Semantic Token Clustering — real-time intent classification at the AI gateway layer (Patent 1, PRD §5.1.1)."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+# When enabled, an ONNX-runtime-backed embedder becomes available.
+# Requires the onnxruntime shared library and a pre-exported MiniLM ONNX model.
+# Ships disabled so the default build has no native dependencies.
+onnx = ["dep:ort", "dep:ndarray", "dep:tokenizers"]
+
+[dependencies]
+tokenova-domain = { path = "../domain" }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+
+# Optional — enabled by the `onnx` feature.
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["load-dynamic"], optional = true }
+ndarray = { version = "0.16", optional = true }
+tokenizers = { version = "0.20", default-features = false, features = ["onig"], optional = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "classifier_latency"
+harness = false

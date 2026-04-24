@@ -1,0 +1,127 @@
+//! Shared domain types for the Tokenova platform.
+//!
+//! These types cross crate boundaries: the proxy produces them, the classifier
+//! consumes them (for the `IntentCategory`), and downstream Session 2 work
+//! (TimescaleDB persistence, dashboard API) will consume the `LogRecord`.
+
+use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+/// Attribution tags extracted from `x-tokenova-*` request headers.
+///
+/// Required by PRD §5.1.1 ("Attribution tagging: user, team, department,
+/// project, application, cost center, environment"). Missing headers are
+/// empty strings rather than errors — the drop-in SDK promise means we cannot
+/// reject requests that lack tags.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttributionTags {
+    pub user: String,
+    pub team: String,
+    pub department: String,
+    pub project: String,
+    pub application: String,
+    pub cost_center: String,
+    pub environment: String,
+}
+
+/// Which upstream provider handled the call.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    OpenAi,
+    Anthropic,
+}
+
+impl Provider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Provider::OpenAi => "openai",
+            Provider::Anthropic => "anthropic",
+        }
+    }
+}
+
+/// Token counts from the provider response.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    pub total_tokens: u32,
+}
+
+impl TokenUsage {
+    pub fn new(prompt: u32, completion: u32) -> Self {
+        Self {
+            prompt_tokens: prompt,
+            completion_tokens: completion,
+            total_tokens: prompt + completion,
+        }
+    }
+}
+
+/// The 10 seed intent categories for Semantic Token Clustering v1 (PRD §5.1.1).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum IntentCategory {
+    CodeGeneration,
+    Summarization,
+    DataExtraction,
+    QuestionAnswering,
+    DocumentReview,
+    Translation,
+    CreativeWriting,
+    ConversationalChat,
+    ReasoningPlanning,
+    Other,
+}
+
+impl IntentCategory {
+    pub const ALL: [IntentCategory; 10] = [
+        IntentCategory::CodeGeneration,
+        IntentCategory::Summarization,
+        IntentCategory::DataExtraction,
+        IntentCategory::QuestionAnswering,
+        IntentCategory::DocumentReview,
+        IntentCategory::Translation,
+        IntentCategory::CreativeWriting,
+        IntentCategory::ConversationalChat,
+        IntentCategory::ReasoningPlanning,
+        IntentCategory::Other,
+    ];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IntentCategory::CodeGeneration => "code_generation",
+            IntentCategory::Summarization => "summarization",
+            IntentCategory::DataExtraction => "data_extraction",
+            IntentCategory::QuestionAnswering => "question_answering",
+            IntentCategory::DocumentReview => "document_review",
+            IntentCategory::Translation => "translation",
+            IntentCategory::CreativeWriting => "creative_writing",
+            IntentCategory::ConversationalChat => "conversational_chat",
+            IntentCategory::ReasoningPlanning => "reasoning_planning",
+            IntentCategory::Other => "other",
+        }
+    }
+}
+
+/// One structured log record per proxied request.
+///
+/// This is what persistence in Session 2 will ingest. Emitted as JSON to
+/// stdout via `tracing_subscriber::fmt::json()` for tonight.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogRecord {
+    pub request_id: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
+    pub received_at: OffsetDateTime,
+    pub provider: Provider,
+    pub model: String,
+    pub attribution: AttributionTags,
+    pub usage: TokenUsage,
+    pub cost_usd: f64,
+    pub intent: IntentCategory,
+    pub latency_added_ms: f64,
+    pub upstream_status: u16,
+    pub streamed: bool,
+}

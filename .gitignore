@@ -137,3 +137,15 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# ── Rust / Tokenova additions ─────────────────────────────────────
+/target
+**/*.rs.bk
+Cargo.lock.orig
+
+# ONNX model artifacts (fetched via scripts/fetch-model.sh)
+/models/*.onnx
+/models/*.tokenizer.json
+
+# macOS
+.DS_Store
