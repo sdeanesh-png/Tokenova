@@ -38,4 +38,4 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 
 - [x] Session 1: universal proxy + Semantic Token Clustering v1 — [`31af3cc`](https://github.com/sdeanesh-png/Tokenova/commit/31af3cc)
 - [x] Session 2 Slice 1: streaming token accounting + QA-round-1 blockers/highs — [`c780206`](https://github.com/sdeanesh-png/Tokenova/commit/c780206)
-- [x] Session 2 Slice 2: handler dedupe, inline classifier, header-drop warn, threshold test, Drop-emit docs — pending commit
+- [x] Session 2 Slice 2: handler dedupe, inline classifier, header-drop warn, threshold test, Drop-emit docs — [`1f0456e`](https://github.com/sdeanesh-png/Tokenova/commit/1f0456e)
