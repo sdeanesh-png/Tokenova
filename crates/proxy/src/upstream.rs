@@ -44,11 +44,24 @@ pub async fn forward(
             // need (or want) them and some providers reject unknown headers.
             continue;
         }
-        if let (Ok(hn), Ok(hv)) = (
+        match (
             HeaderName::from_bytes(name.as_ref()),
             HeaderValue::from_bytes(value.as_bytes()),
         ) {
-            builder = builder.header(hn, hv);
+            (Ok(hn), Ok(hv)) => {
+                builder = builder.header(hn, hv);
+            }
+            (hn_res, hv_res) => {
+                // QA R1 Low #10: log when we drop a header so a missing
+                // auth/content-type on the upstream side is debuggable
+                // instead of a silent mystery.
+                tracing::warn!(
+                    header_name = %name,
+                    name_valid = hn_res.is_ok(),
+                    value_valid = hv_res.is_ok(),
+                    "dropping invalid header before forwarding upstream"
+                );
+            }
         }
     }
 

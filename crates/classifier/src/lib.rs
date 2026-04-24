@@ -226,4 +226,28 @@ mod tests {
             IntentCategory::Other
         );
     }
+
+    /// QA R1 Medium #7 — boundary test for `CONFIDENCE_THRESHOLD`.
+    ///
+    /// The threshold's contract: when no category prototype scores above
+    /// it, the classifier returns `Other`. The most reliable prompt that
+    /// pins this behavior is one whose embedding is the zero vector —
+    /// every prototype dot product is then exactly 0, which is strictly
+    /// below the (positive) threshold, so `Other` must win.
+    ///
+    /// Empty and whitespace-only prompts produce zero-vector embeddings
+    /// (see `HeuristicEmbedder::embed` — no tokens ⇒ no hashed entries ⇒
+    /// zero vector ⇒ L2-normalize leaves it at zero). This test exercises
+    /// the threshold contract deterministically without depending on hash
+    /// function behavior for arbitrary gibberish (which can randomly hit
+    /// collisions with any category prototype's non-zero buckets).
+    #[test]
+    fn zero_vector_prompts_route_to_other() {
+        let c = classifier();
+        assert_eq!(c.classify(""), IntentCategory::Other);
+        assert_eq!(c.classify("   "), IntentCategory::Other);
+        assert_eq!(c.classify("\n\n\t\r"), IntentCategory::Other);
+        // Pure punctuation tokenizes to no alphanumeric tokens.
+        assert_eq!(c.classify("!!! ??? --- ..."), IntentCategory::Other);
+    }
 }

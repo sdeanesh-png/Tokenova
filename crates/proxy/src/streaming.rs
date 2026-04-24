@@ -363,6 +363,29 @@ pub enum EmitTrigger {
 
 /// Per-request streaming accumulator. Holds everything needed to build a
 /// `LogRecord` at stream termination.
+///
+/// ## Exactly-one emission invariant
+///
+/// Every proxied streaming request produces exactly one `LogRecord`,
+/// regardless of whether it completes cleanly, hits an upstream error,
+/// or gets torn down by a client disconnect. Three code paths can trigger
+/// emission:
+///
+/// 1. **Clean EOF** — [`ObservedStream::poll_next`] sees the upstream
+///    stream return `Poll::Ready(None)` and calls `emit(EmitTrigger::Clean)`.
+/// 2. **Stream error** — the upstream stream yields `Poll::Ready(Some(Err))`;
+///    the adapter records the error and calls `emit(EmitTrigger::StreamError)`.
+/// 3. **Drop** — the accumulator is dropped without having reached EOF
+///    (typically because axum dropped the response body after a client
+///    disconnect). The [`Drop`] impl calls `emit(EmitTrigger::Drop)`.
+///
+/// Idempotency is enforced by an `AtomicBool::compare_exchange` on
+/// [`Self::emitted`]: whichever path wins the CAS emits; the losers are
+/// no-ops. This is load-bearing for billing correctness — **never remove
+/// the CAS** without replacing it with an equivalent single-winner guard.
+/// Both the EOF path and the `Drop` path are legitimate "last" emitters;
+/// neither can be assumed to run first, and under cancellation the `Drop`
+/// can race a still-running `poll_next` completion on some runtimes.
 pub struct StreamingAccumulator {
     request_id: Uuid,
     received_at: OffsetDateTime,

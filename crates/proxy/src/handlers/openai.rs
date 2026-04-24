@@ -1,78 +1,91 @@
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+//! OpenAI route handlers.
+//!
+//! Thin adapters over [`crate::handlers::shared::proxy_request`]. All
+//! per-provider behavior lives in [`OpenAiContract`].
 
-use axum::body::Body;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use bytes::Bytes;
-use time::OffsetDateTime;
-use tokenova_domain::{LogRecord, Provider};
-use uuid::Uuid;
+use tokenova_domain::{Provider, TokenUsage};
 
-use crate::attribution;
-use crate::observability::emit_log_record;
+use crate::handlers::shared::{
+    append_capped, proxy_request, BodyMutation, ProviderContract, PROMPT_CAP_BYTES,
+};
 use crate::state::AppState;
-use crate::streaming::{wrap_response_stream, OpenAiStreamParser, StreamingAccumulator};
-use crate::upstream;
+use crate::streaming::{OpenAiStreamParser, StreamingUsageParser};
 use crate::usage;
 
-/// `POST /v1/chat/completions` — streaming-aware proxy to OpenAI's chat endpoint.
+/// `POST /v1/chat/completions` — streaming-aware proxy.
 pub async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    proxy(state, headers, body, "/v1/chat/completions").await
+    let url = format!(
+        "{}/v1/chat/completions",
+        state.openai_upstream.trim_end_matches('/')
+    );
+    proxy_request::<OpenAiContract>(state, headers, body, url).await
 }
 
-/// `POST /v1/embeddings` — buffered proxy to OpenAI's embeddings endpoint.
-///
-/// Embeddings responses aren't streamed by OpenAI (the endpoint has no SSE
-/// mode), so this reuses the non-streaming branch only.
+/// `POST /v1/embeddings` — buffered proxy. Embeddings has no SSE mode on
+/// OpenAI, so the streaming path never fires.
 pub async fn embeddings(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, String)> {
-    proxy(state, headers, body, "/v1/embeddings").await
+    let url = format!(
+        "{}/v1/embeddings",
+        state.openai_upstream.trim_end_matches('/')
+    );
+    proxy_request::<OpenAiContract>(state, headers, body, url).await
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StreamInjection {
-    /// Request is not a streaming request.
-    NotStreaming,
-    /// Request already had `stream_options.include_usage = true`.
-    AlreadyHadIncludeUsage,
-    /// We injected `stream_options.include_usage = true`.
-    Injected,
-    /// Client explicitly set `stream_options.include_usage = false` — respect it.
-    ClientOptedOut,
+pub(crate) struct OpenAiContract;
+
+impl ProviderContract for OpenAiContract {
+    const PROVIDER: Provider = Provider::OpenAi;
+
+    fn extract_prompt(body: &[u8]) -> String {
+        extract_openai_prompt(body)
+    }
+
+    fn parse_buffered_usage(body: &[u8]) -> TokenUsage {
+        usage::parse_openai(body)
+    }
+
+    fn streaming_parser() -> Box<dyn StreamingUsageParser> {
+        Box::new(OpenAiStreamParser::new())
+    }
+
+    fn prepare_streaming_body(body: Bytes) -> (Bytes, BodyMutation) {
+        maybe_inject_stream_options(body)
+    }
 }
 
 /// If the request is a streaming request, ensure `stream_options.include_usage`
 /// is `true` so OpenAI emits the terminal usage frame we need for billing.
 /// Never flips an explicit `false` — the client's opt-out is preserved.
-fn maybe_inject_stream_options(body: Bytes) -> (Bytes, StreamInjection) {
+fn maybe_inject_stream_options(body: Bytes) -> (Bytes, BodyMutation) {
     let Ok(mut v) = serde_json::from_slice::<serde_json::Value>(&body) else {
-        return (body, StreamInjection::NotStreaming);
+        return (body, BodyMutation::None);
     };
     let streamed = v.get("stream").and_then(|s| s.as_bool()).unwrap_or(false);
     if !streamed {
-        return (body, StreamInjection::NotStreaming);
+        return (body, BodyMutation::None);
     }
 
-    // Inspect existing stream_options.include_usage.
     let existing = v
         .get("stream_options")
         .and_then(|o| o.get("include_usage"))
         .and_then(|i| i.as_bool());
 
     match existing {
-        Some(true) => (body, StreamInjection::AlreadyHadIncludeUsage),
-        Some(false) => (body, StreamInjection::ClientOptedOut),
+        Some(true) => (body, BodyMutation::AlreadyHadIncludeUsage),
+        Some(false) => (body, BodyMutation::ClientOptedOut),
         None => {
-            // Inject include_usage = true into (possibly-missing) stream_options.
             let obj = v.as_object_mut().expect("top-level must be object");
             let so = obj
                 .entry("stream_options".to_string())
@@ -82,258 +95,14 @@ fn maybe_inject_stream_options(body: Bytes) -> (Bytes, StreamInjection) {
             }
             let new_bytes =
                 serde_json::to_vec(&v).expect("re-serializing a parsed Value must succeed");
-            (Bytes::from(new_bytes), StreamInjection::Injected)
+            (Bytes::from(new_bytes), BodyMutation::InjectedIncludeUsage)
         }
     }
-}
-
-async fn proxy(
-    state: AppState,
-    headers: HeaderMap,
-    body: Bytes,
-    path: &str,
-) -> Result<Response, (StatusCode, String)> {
-    let request_id = Uuid::new_v4();
-    let received_at = OffsetDateTime::now_utc();
-    let started = Instant::now();
-
-    let attribution = attribution::extract(&headers);
-
-    let streamed = is_streaming_request(&body);
-    let prompt_text = extract_openai_prompt(&body);
-    let request_model = extract_openai_model(&body);
-
-    // Conditionally rewrite the body to inject include_usage. Non-streaming
-    // passes through unchanged.
-    let (upstream_body, injection) = if streamed {
-        maybe_inject_stream_options(body)
-    } else {
-        (body, StreamInjection::NotStreaming)
-    };
-
-    if injection == StreamInjection::ClientOptedOut {
-        tracing::warn!(
-            request_id = %request_id,
-            "client set stream_options.include_usage=false; streaming usage will be zero"
-        );
-    }
-
-    let url = format!("{}{}", state.openai_upstream.trim_end_matches('/'), path);
-
-    let upstream_resp = upstream::forward(&state.http, url, &headers, upstream_body)
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("upstream error: {e}")))?;
-
-    let status = upstream_resp.status();
-    let resp_headers = upstream_resp.headers().clone();
-
-    // Classify off the hot path. We do this for both streaming and
-    // non-streaming so the streaming accumulator has `intent` ready without
-    // an async call from `Drop`.
-    let classifier = state.classifier.clone();
-    let prompt_owned = prompt_text;
-    let intent_handle = tokio::task::spawn_blocking(move || classifier.classify(&prompt_owned));
-    let intent = intent_handle
-        .await
-        .unwrap_or(tokenova_domain::IntentCategory::Other);
-
-    if streamed {
-        build_streaming_response(
-            state,
-            resp_headers,
-            status,
-            upstream_resp,
-            request_id,
-            received_at,
-            started,
-            attribution,
-            request_model,
-            intent,
-        )
-    } else {
-        build_buffered_response(
-            state,
-            resp_headers,
-            status,
-            upstream_resp,
-            request_id,
-            received_at,
-            started,
-            attribution,
-            request_model,
-            intent,
-        )
-        .await
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn build_buffered_response(
-    state: AppState,
-    resp_headers: axum::http::HeaderMap,
-    status: axum::http::StatusCode,
-    upstream_resp: reqwest::Response,
-    request_id: Uuid,
-    received_at: OffsetDateTime,
-    started: Instant,
-    attribution: tokenova_domain::AttributionTags,
-    request_model: String,
-    intent: tokenova_domain::IntentCategory,
-) -> Result<Response, (StatusCode, String)> {
-    let resp_bytes = upstream_resp
-        .bytes()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("reading upstream: {e}")))?;
-
-    let latency_added_ms = started.elapsed().as_secs_f64() * 1000.0;
-
-    let token_usage = usage::parse_openai(&resp_bytes);
-    let response_model = extract_openai_response_model(&resp_bytes).unwrap_or(request_model);
-    let cost_usd = state
-        .pricing
-        .rate(Provider::OpenAi, &response_model)
-        .cost_usd(&token_usage);
-
-    let record = LogRecord {
-        request_id,
-        received_at,
-        provider: Provider::OpenAi,
-        model: response_model,
-        attribution,
-        usage: token_usage,
-        cost_usd,
-        intent,
-        latency_added_ms,
-        upstream_status: status.as_u16(),
-        streamed: false,
-        stream_truncated: false,
-        stream_error: false,
-        stream_duration_ms: None,
-    };
-    emit_log_record(&record);
-
-    let mut builder = Response::builder().status(status);
-    for (name, value) in resp_headers.iter() {
-        let lname = name.as_str().to_ascii_lowercase();
-        if matches!(
-            lname.as_str(),
-            "transfer-encoding" | "connection" | "keep-alive" | "content-length"
-        ) {
-            continue;
-        }
-        builder = builder.header(name.clone(), value.clone());
-    }
-    builder.body(Body::from(resp_bytes)).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("building response: {e}"),
-        )
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_streaming_response(
-    state: AppState,
-    resp_headers: axum::http::HeaderMap,
-    status: axum::http::StatusCode,
-    upstream_resp: reqwest::Response,
-    request_id: Uuid,
-    received_at: OffsetDateTime,
-    started: Instant,
-    attribution: tokenova_domain::AttributionTags,
-    request_model: String,
-    intent: tokenova_domain::IntentCategory,
-) -> Result<Response, (StatusCode, String)> {
-    // Latency-added = proxy overhead before first byte out, i.e. the elapsed
-    // time from handler entry to this point. `stream_duration_ms` captures
-    // end-to-end when the stream closes.
-    let latency_added_ms = started.elapsed().as_secs_f64() * 1000.0;
-
-    let accumulator = Arc::new(Mutex::new(StreamingAccumulator::new(
-        request_id,
-        received_at,
-        started,
-        Provider::OpenAi,
-        request_model,
-        attribution,
-        intent,
-        state.pricing.clone(),
-        status.as_u16(),
-        latency_added_ms,
-        Box::new(OpenAiStreamParser::new()),
-    )));
-
-    let upstream_stream = upstream_resp.bytes_stream();
-    let observed = wrap_response_stream(upstream_stream, accumulator);
-
-    let mut builder = Response::builder().status(status);
-    for (name, value) in resp_headers.iter() {
-        let lname = name.as_str().to_ascii_lowercase();
-        if matches!(
-            lname.as_str(),
-            "transfer-encoding" | "connection" | "keep-alive" | "content-length"
-        ) {
-            continue;
-        }
-        builder = builder.header(name.clone(), value.clone());
-    }
-    builder.body(Body::from_stream(observed)).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("building response: {e}"),
-        )
-    })
-}
-
-fn is_streaming_request(body: &[u8]) -> bool {
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("stream").and_then(|s| s.as_bool()))
-        .unwrap_or(false)
-}
-
-fn extract_openai_model(body: &[u8]) -> String {
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from))
-        .unwrap_or_default()
-}
-
-fn extract_openai_response_model(body: &[u8]) -> Option<String> {
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(String::from))
-}
-
-/// Maximum bytes of prompt text fed to the classifier. A hard cap keeps
-/// classification latency bounded on pathological inputs and prevents
-/// unbounded string growth during extraction (QA Medium #5).
-const PROMPT_CAP_BYTES: usize = 2048;
-
-/// Append at most `remaining = PROMPT_CAP_BYTES - out.len()` bytes of `s` to
-/// `out`. Returns true if the cap has been reached (caller should break).
-fn append_capped(out: &mut String, s: &str) -> bool {
-    if out.len() >= PROMPT_CAP_BYTES {
-        return true;
-    }
-    let remaining = PROMPT_CAP_BYTES - out.len();
-    if s.len() <= remaining {
-        out.push_str(s);
-    } else {
-        // Find a safe UTF-8 boundary at or below `remaining`.
-        let mut cut = remaining;
-        while cut > 0 && !s.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        out.push_str(&s[..cut]);
-    }
-    out.len() >= PROMPT_CAP_BYTES
 }
 
 /// Pull the user-visible prompt text out of an OpenAI chat-completions
-/// request for classification. Concatenates the `content` field of every
-/// `user` and `system` message, capped incrementally at `PROMPT_CAP_BYTES`
-/// to bound memory on pathological inputs (QA Medium #5).
+/// request for classification. Concatenates `content` of every `user` and
+/// `system` message, capped incrementally at `PROMPT_CAP_BYTES`.
 fn extract_openai_prompt(body: &[u8]) -> String {
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
         return String::new();
@@ -386,7 +155,6 @@ fn extract_openai_prompt(body: &[u8]) -> String {
             }
         }
     }
-    // Belt-and-suspenders.
     out.truncate(PROMPT_CAP_BYTES);
     out
 }
@@ -397,8 +165,6 @@ mod tests {
 
     #[test]
     fn extract_openai_prompt_bounded_under_many_messages() {
-        // 1000 messages, each with ~1 KB of content. Output must be
-        // <= PROMPT_CAP_BYTES, and the function must return quickly.
         let big_chunk = "a".repeat(1024);
         let mut messages = Vec::with_capacity(1000);
         for _ in 0..1000 {
@@ -417,8 +183,6 @@ mod tests {
         let out = extract_openai_prompt(&body);
         let elapsed = start.elapsed();
         assert!(out.len() <= PROMPT_CAP_BYTES, "len={}", out.len());
-        // Sanity: the function should finish in well under a second even in
-        // debug builds.
         assert!(elapsed.as_secs() < 2, "took too long: {elapsed:?}");
     }
 
@@ -433,7 +197,7 @@ mod tests {
             .unwrap(),
         );
         let (new_body, inj) = maybe_inject_stream_options(body);
-        assert_eq!(inj, StreamInjection::Injected);
+        assert_eq!(inj, BodyMutation::InjectedIncludeUsage);
         let v: serde_json::Value = serde_json::from_slice(&new_body).unwrap();
         assert_eq!(
             v.get("stream_options").and_then(|o| o.get("include_usage")),
@@ -453,7 +217,7 @@ mod tests {
             .unwrap(),
         );
         let (new_body, inj) = maybe_inject_stream_options(body.clone());
-        assert_eq!(inj, StreamInjection::ClientOptedOut);
+        assert_eq!(inj, BodyMutation::ClientOptedOut);
         assert_eq!(new_body, body);
     }
 
@@ -469,7 +233,7 @@ mod tests {
             .unwrap(),
         );
         let (new_body, inj) = maybe_inject_stream_options(body.clone());
-        assert_eq!(inj, StreamInjection::AlreadyHadIncludeUsage);
+        assert_eq!(inj, BodyMutation::AlreadyHadIncludeUsage);
         assert_eq!(new_body, body);
     }
 
@@ -483,7 +247,7 @@ mod tests {
             .unwrap(),
         );
         let (new_body, inj) = maybe_inject_stream_options(body.clone());
-        assert_eq!(inj, StreamInjection::NotStreaming);
+        assert_eq!(inj, BodyMutation::None);
         assert_eq!(new_body, body);
     }
 }
