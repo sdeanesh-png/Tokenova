@@ -3,15 +3,27 @@
 use anyhow::Context;
 use tokenova_proxy::{build_router, AppState};
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let config = tokenova_proxy::config::Config::from_env()?;
-    tokenova_proxy::observability::init(config.log_format);
 
+    // Sentry MUST be initialized before the tokio runtime starts so its
+    // panic hook is registered on the main thread. The guard must live
+    // for the process lifetime — dropping it flushes + disables Sentry.
+    let _sentry = tokenova_proxy::observability::init_sentry(&config);
+    tokenova_proxy::observability::init_tracing(config.log_format);
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async { run(config).await })
+}
+
+async fn run(config: tokenova_proxy::config::Config) -> anyhow::Result<()> {
     tracing::info!(
         addr = %config.listen_addr,
         openai = %config.openai_upstream,
         anthropic = %config.anthropic_upstream,
+        sentry = config.sentry_dsn.is_some(),
         "tokenova-proxy starting",
     );
 

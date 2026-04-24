@@ -126,6 +126,25 @@ consumed by the proxy and redacted from the outgoing request.
 | `TOKENOVA_ANTHROPIC_UPSTREAM` | `https://api.anthropic.com` | Anthropic base URL |
 | `TOKENOVA_LOG_FORMAT` | `json` | `json` or `pretty` |
 | `TOKENOVA_LOG` | `info` | `tracing` filter directive |
+| `TOKENOVA_SENTRY_DSN` | *(unset)* | Sentry DSN. When unset, Sentry is a no-op — no outbound connections, no panic hook, no overhead. |
+| `TOKENOVA_SENTRY_ENVIRONMENT` | `development` | Environment label reported to Sentry (`production`, `staging`, etc.) |
+| `TOKENOVA_SENTRY_RELEASE` | `tokenova-proxy@<version>` | Release tag for deploy correlation |
+| `TOKENOVA_SENTRY_TRACES_SAMPLE_RATE` | `0.0` | Transaction sampling rate (0.0–1.0). `0.0` disables Sentry performance monitoring. |
+
+### Error tracking (Sentry)
+
+Set `TOKENOVA_SENTRY_DSN` to your Sentry project DSN to enable error
+tracking. When set, the proxy:
+
+- Captures panics from any task (registered via Sentry's panic hook).
+- Promotes `tracing::error!` calls to Sentry events with full stack traces.
+- Attaches `tracing::warn!` and `tracing::info!` calls as breadcrumbs on
+  subsequent events.
+
+When the DSN is unset (default, including all local dev and CI), Sentry
+is never initialized. No outbound connections are made, no panic hook
+is registered, and the `sentry_tracing::layer()` in the tracing stack
+is inert — `tracing::error!` calls flow only to stdout.
 
 ---
 

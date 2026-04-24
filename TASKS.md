@@ -21,7 +21,7 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 
 - [ ] TimescaleDB persistence for `LogRecord` stream
 - [ ] Control-plane dashboard scaffold (Next.js 14, PRD §6.2)
-- [ ] Sentry wiring across proxy + (future) dashboard *(PRD §10.5)*
+- [x] ~~Sentry wiring across proxy~~ (shipped); dashboard wiring deferred until dashboard exists *(PRD §10.5)*
 - [ ] PostHog wiring *(PRD §10.5)*
 - [ ] Provider expansion: Azure OpenAI, Bedrock, Vertex, Cohere, Mistral *(PRD Phase 2)*
 - [ ] Policy engine (OPA/Rego) *(PRD Phase 2)*
@@ -40,3 +40,4 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [x] Session 2 Slice 1: streaming token accounting + QA-round-1 blockers/highs — [`c780206`](https://github.com/sdeanesh-png/Tokenova/commit/c780206)
 - [x] Session 2 Slice 2: handler dedupe, inline classifier, header-drop warn, threshold test, Drop-emit docs — [`1f0456e`](https://github.com/sdeanesh-png/Tokenova/commit/1f0456e)
 - [x] Session 2 Slice 3: attribution `Option<String>` + `test_sink` feature gate — [`9a42958`](https://github.com/sdeanesh-png/Tokenova/commit/9a42958)
+- [x] Session 2 Slice 4: Sentry wiring (DSN-gated, no-op when unset) — pending commit

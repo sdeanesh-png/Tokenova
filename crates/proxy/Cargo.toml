@@ -31,6 +31,8 @@ futures = { workspace = true }
 futures-util = { workspace = true }
 http = { workspace = true }
 reqwest = { workspace = true }
+sentry = { workspace = true }
+sentry-tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

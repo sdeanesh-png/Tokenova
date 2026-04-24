@@ -1,25 +1,79 @@
-//! Structured log emission and tracing bootstrap.
+//! Structured log emission, tracing bootstrap, and Sentry wiring.
 
+use sentry::ClientInitGuard;
 use tokenova_domain::LogRecord;
 use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use crate::config::LogFormat;
+use crate::config::{Config, LogFormat};
 
-pub fn init(format: LogFormat) {
+/// Initialize the Sentry client if `TOKENOVA_SENTRY_DSN` is set. When the
+/// DSN is unset (tests, local dev) this is a no-op and Sentry is never
+/// activated — no outbound connections, no panic hook, no overhead.
+///
+/// The returned guard **must be held for the process lifetime** (typically
+/// `let _guard = observability::init_sentry(&config);` at the top of
+/// `main`). Dropping the guard flushes any queued events and disables the
+/// client, so dropping early silently disables error reporting.
+#[must_use = "Sentry guard must live for the lifetime of the process"]
+pub fn init_sentry(config: &Config) -> Option<ClientInitGuard> {
+    let dsn = config.sentry_dsn.as_ref()?;
+
+    let guard = sentry::init((
+        dsn.as_str(),
+        sentry::ClientOptions {
+            environment: Some(config.sentry_environment.clone().into()),
+            release: Some(config.sentry_release.clone().into()),
+            traces_sample_rate: config.sentry_traces_sample_rate,
+            attach_stacktrace: true,
+            // Send events synchronously at shutdown so we don't lose the
+            // last error when a container is killed.
+            shutdown_timeout: std::time::Duration::from_secs(3),
+            ..Default::default()
+        },
+    ));
+    Some(guard)
+}
+
+/// Initialize the `tracing` subscriber with Sentry breadcrumbs + event
+/// capture layered in. When Sentry isn't initialized, the
+/// `sentry_tracing::layer()` layer is still installed but is inert —
+/// breadcrumbs go nowhere and `tracing::error!` calls don't produce
+/// Sentry events.
+pub fn init_tracing(format: LogFormat) {
     let filter = EnvFilter::try_from_env("TOKENOVA_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let builder = tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_span_events(FmtSpan::NONE)
-        .with_target(false);
+    // Sentry layer: all `tracing::error!` calls become Sentry events,
+    // `tracing::warn!` and `info!` are captured as breadcrumbs.
+    let sentry_layer = sentry_tracing::layer();
+
+    let registry = tracing_subscriber::registry()
+        .with(filter)
+        .with(sentry_layer);
 
     match format {
         LogFormat::Json => {
-            builder.json().flatten_event(true).init();
+            registry
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_span_events(FmtSpan::NONE)
+                        .with_target(false)
+                        .json()
+                        .flatten_event(true),
+                )
+                .init();
         }
         LogFormat::Pretty => {
-            builder.compact().init();
+            registry
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_span_events(FmtSpan::NONE)
+                        .with_target(false)
+                        .compact(),
+                )
+                .init();
         }
     }
 }
