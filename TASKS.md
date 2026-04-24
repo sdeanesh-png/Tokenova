@@ -23,7 +23,7 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [ ] Control-plane dashboard scaffold (Next.js 14, PRD §6.2)
 - [x] ~~Sentry wiring across proxy~~ (shipped); dashboard wiring deferred until dashboard exists *(PRD §10.5)*
 - [ ] PostHog wiring *(PRD §10.5)*
-- [ ] Provider expansion: Azure OpenAI, Bedrock, Vertex, Cohere, Mistral *(PRD Phase 2)*
+- [ ] Provider expansion: ~~Azure OpenAI~~ (shipped), Bedrock, Vertex, Cohere, Mistral *(PRD Phase 2)*
 - [ ] Policy engine (OPA/Rego) *(PRD Phase 2)*
 
 ## Non-code (PRD §10.5)
@@ -41,3 +41,4 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [x] Session 2 Slice 2: handler dedupe, inline classifier, header-drop warn, threshold test, Drop-emit docs — [`1f0456e`](https://github.com/sdeanesh-png/Tokenova/commit/1f0456e)
 - [x] Session 2 Slice 3: attribution `Option<String>` + `test_sink` feature gate — [`9a42958`](https://github.com/sdeanesh-png/Tokenova/commit/9a42958)
 - [x] Session 2 Slice 4: Sentry wiring (DSN-gated, no-op when unset) — [`6a374b3`](https://github.com/sdeanesh-png/Tokenova/commit/6a374b3)
+- [x] Session 2 Slice 5: Azure OpenAI provider (deployment-based URLs, path+query passthrough, streaming + buffered, tests) — pending commit

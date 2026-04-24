@@ -9,7 +9,9 @@ use axum::response::Response;
 use bytes::Bytes;
 use tokenova_domain::{Provider, TokenUsage};
 
-use crate::handlers::shared::{append_capped, proxy_request, ProviderContract, PROMPT_CAP_BYTES};
+use crate::handlers::shared::{
+    append_capped, extract_model, proxy_request, ProviderContract, PROMPT_CAP_BYTES,
+};
 use crate::state::AppState;
 use crate::streaming::{AnthropicStreamParser, StreamingUsageParser};
 use crate::usage;
@@ -24,7 +26,8 @@ pub async fn messages(
         "{}/v1/messages",
         state.anthropic_upstream.trim_end_matches('/')
     );
-    proxy_request::<AnthropicContract>(state, headers, body, url).await
+    let request_model = extract_model(&body);
+    proxy_request::<AnthropicContract>(state, headers, body, url, request_model).await
 }
 
 pub(crate) struct AnthropicContract;

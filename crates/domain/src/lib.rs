@@ -41,6 +41,10 @@ pub struct AttributionTags {
 pub enum Provider {
     OpenAi,
     Anthropic,
+    /// Azure OpenAI — wire-compatible with OpenAI (same request/response
+    /// body shape, same SSE format) but with deployment-based URLs and
+    /// `api-key` auth instead of `Authorization: Bearer`.
+    AzureOpenAi,
 }
 
 impl Provider {
@@ -48,6 +52,7 @@ impl Provider {
         match self {
             Provider::OpenAi => "openai",
             Provider::Anthropic => "anthropic",
+            Provider::AzureOpenAi => "azure_openai",
         }
     }
 }

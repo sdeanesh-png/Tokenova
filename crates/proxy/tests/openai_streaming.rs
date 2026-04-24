@@ -32,7 +32,7 @@ async fn serial_guard() -> tokio::sync::OwnedMutexGuard<()> {
 }
 
 async fn spawn_proxy(openai_upstream: String) -> SocketAddr {
-    let state = AppState::for_tests(openai_upstream, "http://unused".into()).unwrap();
+    let state = AppState::for_tests(openai_upstream, "http://unused".into(), None).unwrap();
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
         .await

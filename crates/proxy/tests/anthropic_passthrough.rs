@@ -10,7 +10,7 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn spawn_proxy(anthropic_upstream: String) -> SocketAddr {
-    let state = AppState::for_tests("http://unused".into(), anthropic_upstream).unwrap();
+    let state = AppState::for_tests("http://unused".into(), anthropic_upstream, None).unwrap();
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
         .await

@@ -23,6 +23,7 @@ async fn run(config: tokenova_proxy::config::Config) -> anyhow::Result<()> {
         addr = %config.listen_addr,
         openai = %config.openai_upstream,
         anthropic = %config.anthropic_upstream,
+        azure = ?config.azure_upstream,
         sentry = config.sentry_dsn.is_some(),
         "tokenova-proxy starting",
     );
@@ -30,6 +31,7 @@ async fn run(config: tokenova_proxy::config::Config) -> anyhow::Result<()> {
     let state = AppState::new(
         config.openai_upstream.clone(),
         config.anthropic_upstream.clone(),
+        config.azure_upstream.clone(),
     )?;
     let app = build_router(state);
 

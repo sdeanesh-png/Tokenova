@@ -12,6 +12,12 @@ pub struct Config {
     pub listen_addr: SocketAddr,
     pub openai_upstream: String,
     pub anthropic_upstream: String,
+    /// Azure OpenAI resource base URL, e.g.
+    /// `https://my-resource.openai.azure.com`. When unset, Azure routes
+    /// return 503 Service Unavailable. This is the default safe shape —
+    /// a proxy with no Azure configuration shouldn't expose routes that
+    /// would forward to an unintended upstream.
+    pub azure_upstream: Option<String>,
     pub log_format: LogFormat,
     /// Sentry DSN. When unset, Sentry is not initialized and the proxy
     /// runs with zero Sentry overhead — this is the default for tests
@@ -46,6 +52,9 @@ impl Config {
             .unwrap_or_else(|_| "https://api.openai.com".to_string());
         let anthropic_upstream = env::var("TOKENOVA_ANTHROPIC_UPSTREAM")
             .unwrap_or_else(|_| "https://api.anthropic.com".to_string());
+        let azure_upstream = env::var("TOKENOVA_AZURE_UPSTREAM")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
 
         let log_format = match env::var("TOKENOVA_LOG_FORMAT").unwrap_or_default().as_str() {
             "pretty" => LogFormat::Pretty,
@@ -69,6 +78,7 @@ impl Config {
             listen_addr,
             openai_upstream,
             anthropic_upstream,
+            azure_upstream,
             log_format,
             sentry_dsn,
             sentry_environment,

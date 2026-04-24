@@ -10,7 +10,7 @@ use bytes::Bytes;
 use tokenova_domain::{Provider, TokenUsage};
 
 use crate::handlers::shared::{
-    append_capped, proxy_request, BodyMutation, ProviderContract, PROMPT_CAP_BYTES,
+    append_capped, extract_model, proxy_request, BodyMutation, ProviderContract, PROMPT_CAP_BYTES,
 };
 use crate::state::AppState;
 use crate::streaming::{OpenAiStreamParser, StreamingUsageParser};
@@ -26,7 +26,8 @@ pub async fn chat_completions(
         "{}/v1/chat/completions",
         state.openai_upstream.trim_end_matches('/')
     );
-    proxy_request::<OpenAiContract>(state, headers, body, url).await
+    let request_model = extract_model(&body);
+    proxy_request::<OpenAiContract>(state, headers, body, url, request_model).await
 }
 
 /// `POST /v1/embeddings` — buffered proxy. Embeddings has no SSE mode on
@@ -40,7 +41,8 @@ pub async fn embeddings(
         "{}/v1/embeddings",
         state.openai_upstream.trim_end_matches('/')
     );
-    proxy_request::<OpenAiContract>(state, headers, body, url).await
+    let request_model = extract_model(&body);
+    proxy_request::<OpenAiContract>(state, headers, body, url, request_model).await
 }
 
 pub(crate) struct OpenAiContract;
@@ -68,7 +70,10 @@ impl ProviderContract for OpenAiContract {
 /// If the request is a streaming request, ensure `stream_options.include_usage`
 /// is `true` so OpenAI emits the terminal usage frame we need for billing.
 /// Never flips an explicit `false` — the client's opt-out is preserved.
-fn maybe_inject_stream_options(body: Bytes) -> (Bytes, BodyMutation) {
+///
+/// Shared with `handlers::azure` since Azure OpenAI uses the same SSE
+/// wire format and the same `stream_options` semantics.
+pub(crate) fn maybe_inject_stream_options(body: Bytes) -> (Bytes, BodyMutation) {
     let Ok(mut v) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return (body, BodyMutation::None);
     };
@@ -103,7 +108,10 @@ fn maybe_inject_stream_options(body: Bytes) -> (Bytes, BodyMutation) {
 /// Pull the user-visible prompt text out of an OpenAI chat-completions
 /// request for classification. Concatenates `content` of every `user` and
 /// `system` message, capped incrementally at `PROMPT_CAP_BYTES`.
-fn extract_openai_prompt(body: &[u8]) -> String {
+///
+/// Shared with `handlers::azure` — Azure uses the exact same request body
+/// shape, so the same extractor works for both.
+pub(crate) fn extract_openai_prompt(body: &[u8]) -> String {
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(body) else {
         return String::new();
     };

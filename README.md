@@ -27,13 +27,14 @@ the universal proxy plus v1 of the Semantic Token Clustering classifier
 | [`crates/classifier`](crates/classifier) | Semantic Token Clustering v1. Default = zero-dep hashed embedder; ONNX backend behind the `onnx` feature. |
 | [`crates/proxy`](crates/proxy) | Axum/Tokio HTTP proxy for OpenAI `/v1/chat/completions`, `/v1/embeddings`, and Anthropic `/v1/messages`. |
 
-### Supported providers (Session 1)
+### Supported providers
 
 - OpenAI (`/v1/chat/completions`, `/v1/embeddings`)
 - Anthropic (`/v1/messages`)
+- Azure OpenAI (`/openai/deployments/{deployment}/{chat/completions,completions,embeddings}?api-version=…`)
 
-More providers (Azure OpenAI, Bedrock, Vertex, Cohere, Mistral) land in
-Phase 2 per the roadmap.
+Additional providers (Bedrock, Vertex, Cohere, Mistral) land in Phase 2
+per the roadmap.
 
 ### Intent categories (10)
 
@@ -124,6 +125,7 @@ consumed by the proxy and redacted from the outgoing request.
 | `TOKENOVA_PORT` | `8080` | Listen port |
 | `TOKENOVA_OPENAI_UPSTREAM` | `https://api.openai.com` | OpenAI base URL |
 | `TOKENOVA_ANTHROPIC_UPSTREAM` | `https://api.anthropic.com` | Anthropic base URL |
+| `TOKENOVA_AZURE_UPSTREAM` | *(unset)* | Azure OpenAI resource base URL, e.g. `https://my-resource.openai.azure.com`. When unset, Azure routes return `503 Service Unavailable`. |
 | `TOKENOVA_LOG_FORMAT` | `json` | `json` or `pretty` |
 | `TOKENOVA_LOG` | `info` | `tracing` filter directive |
 | `TOKENOVA_SENTRY_DSN` | *(unset)* | Sentry DSN. When unset, Sentry is a no-op — no outbound connections, no panic hook, no overhead. |
@@ -147,6 +149,29 @@ is registered, and the `sentry_tracing::layer()` in the tracing stack
 is inert — `tracing::error!` calls flow only to stdout.
 
 ---
+
+### Azure OpenAI
+
+Set `TOKENOVA_AZURE_UPSTREAM` to your Azure resource base URL
+(`https://<resource>.openai.azure.com`) and point your client at the
+proxy using Azure's native URL shape — deployment name in the path,
+`api-version` query param, `api-key` header:
+
+```bash
+curl -sS \
+  "http://localhost:8080/openai/deployments/<deployment>/chat/completions?api-version=2024-08-06-preview" \
+  -H "api-key: $AZURE_OPENAI_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-tokenova-user: steve" \
+  -H "x-tokenova-team: enterprise" \
+  -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":32}'
+```
+
+The deployment name is reported as the `model` field in the emitted
+`LogRecord` unless the upstream response body includes a `model` value,
+which wins. Azure inherits OpenAI's `stream_options.include_usage`
+injection for streaming token accounting — requires API version
+`2024-08-06-preview` or later.
 
 ## What Tokenova modifies in your requests
 

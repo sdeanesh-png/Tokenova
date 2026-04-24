@@ -60,11 +60,18 @@ pub(crate) enum BodyMutation {
 }
 
 /// The shared pipeline. Every proxy request flows through here.
+///
+/// `request_model` is computed by the caller — most providers read it from
+/// the request body via [`extract_model`], but Azure OpenAI's "model" is
+/// the deployment name baked into the URL path, not a body field, which
+/// is why the extraction lives in the handler rather than in the
+/// [`ProviderContract`] trait.
 pub(crate) async fn proxy_request<P: ProviderContract>(
     state: AppState,
     headers: HeaderMap,
     body: Bytes,
     url: String,
+    request_model: String,
 ) -> Result<Response, (StatusCode, String)> {
     let request_id = Uuid::new_v4();
     let received_at = OffsetDateTime::now_utc();
@@ -74,7 +81,6 @@ pub(crate) async fn proxy_request<P: ProviderContract>(
 
     let streamed = is_streaming_request(&body);
     let prompt_text = P::extract_prompt(&body);
-    let request_model = extract_model(&body);
 
     let (upstream_body, mutation) = if streamed {
         P::prepare_streaming_body(body)

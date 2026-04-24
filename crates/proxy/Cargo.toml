@@ -59,3 +59,7 @@ required-features = ["test-utils"]
 [[test]]
 name = "anthropic_streaming"
 required-features = ["test-utils"]
+
+[[test]]
+name = "azure_streaming"
+required-features = ["test-utils"]

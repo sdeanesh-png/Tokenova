@@ -104,6 +104,18 @@ impl Default for PricingTable {
             },
         );
 
+        // Azure OpenAI — underlying models + rates match OpenAI's. The
+        // LogRecord `model` field will be the deployment name unless the
+        // response body includes a `model` override, so rate lookup uses
+        // whatever identifier lands there. We mirror the OpenAI rates for
+        // the common model keys so customers whose deployment names match
+        // model names get correct pricing out of the box.
+        for model in &["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"] {
+            if let Some(rate) = rates.get(&(Provider::OpenAi, model.to_string())).copied() {
+                rates.insert((Provider::AzureOpenAi, model.to_string()), rate);
+            }
+        }
+
         let mut fallbacks = HashMap::new();
         fallbacks.insert(
             Provider::OpenAi,
@@ -117,6 +129,13 @@ impl Default for PricingTable {
             ModelRate {
                 input_per_m: 3.00,
                 output_per_m: 15.00,
+            },
+        );
+        fallbacks.insert(
+            Provider::AzureOpenAi,
+            ModelRate {
+                input_per_m: 2.50,
+                output_per_m: 10.00,
             },
         );
 

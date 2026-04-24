@@ -11,7 +11,7 @@ use reqwest::Client;
 use tokenova_proxy::{build_router, AppState};
 
 async fn spawn_proxy() -> SocketAddr {
-    let state = AppState::for_tests("http://unused".into(), "http://unused".into()).unwrap();
+    let state = AppState::for_tests("http://unused".into(), "http://unused".into(), None).unwrap();
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))
         .await
