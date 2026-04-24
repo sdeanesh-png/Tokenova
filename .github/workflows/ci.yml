@@ -21,9 +21,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Format
         run: cargo fmt --all -- --check
-      - name: Clippy
+      - name: Clippy (default features)
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Test
-        run: cargo test --workspace
-      - name: Release build
+      - name: Clippy (with test-utils)
+        # Verifies the feature-gated test-sink code still compiles clean.
+        # Doesn't enable tokenova-classifier/onnx — that backend requires
+        # the onnxruntime shared library which isn't installed in CI.
+        run: cargo clippy --workspace --all-targets --features tokenova-proxy/test-utils -- -D warnings
+      - name: Test (with test-utils)
+        # `test-utils` is required for the streaming integration tests to
+        # compile (they use `observability::test_sink`). Tests without
+        # `required-features` still run as usual.
+        run: cargo test --workspace --features tokenova-proxy/test-utils
+      - name: Release build (default features, production shape)
+        # Release build must NOT carry the test-utils feature — verifies
+        # production shape has no test-sink API surface.
         run: cargo build --workspace --release

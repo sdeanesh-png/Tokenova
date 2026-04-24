@@ -33,15 +33,20 @@ pub fn emit_log_record(record: &LogRecord) {
         Err(err) => tracing::error!(?err, "failed to serialize LogRecord"),
     }
 
+    #[cfg(any(test, feature = "test-utils"))]
     test_sink::dispatch(record);
 }
 
-/// Test-log-capture mechanism: lets tests (unit or integration) register a
-/// sink that receives every `LogRecord` emitted by `emit_log_record`. This
-/// is exposed unconditionally — a single `OnceLock` + `RwLock` read per log
-/// with no registered sink is a ~nanosecond cost and keeps the API usable
-/// from integration tests under `crates/proxy/tests/` (which compile the
-/// library without `cfg(test)`).
+/// Test-log-capture mechanism: lets tests register a sink that receives
+/// every `LogRecord` emitted by `emit_log_record`.
+///
+/// Compiled only under `cfg(test)` (unit tests) or the `test-utils` Cargo
+/// feature (integration tests, which can't see `cfg(test)` items in the
+/// library target). Production builds omit this module entirely — no
+/// runtime overhead and no API surface for a third-party consumer to
+/// register a sink that could exfiltrate `LogRecord`s in a deployed proxy
+/// (QA R2 Low #2).
+#[cfg(any(test, feature = "test-utils"))]
 pub mod test_sink {
     use std::sync::{Arc, OnceLock, RwLock};
 

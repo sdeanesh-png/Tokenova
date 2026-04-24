@@ -13,6 +13,13 @@ path = "src/main.rs"
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Exposes the `observability::test_sink` module used by integration tests
+# under `crates/proxy/tests/*.rs` to assert on emitted `LogRecord`s.
+# Gated because production builds should not carry a public API that lets
+# a third-party consumer install a sink to exfiltrate log records.
+test-utils = []
+
 [dependencies]
 tokenova-domain = { path = "../domain" }
 tokenova-classifier = { path = "../classifier" }
@@ -38,3 +45,15 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 wiremock = { workspace = true }
+
+# Integration tests that introspect emitted `LogRecord`s need the
+# `test-utils` feature to compile the `observability::test_sink` module.
+# Tests without this marker (body limits, passthrough byte equality) run
+# on the default build.
+[[test]]
+name = "openai_streaming"
+required-features = ["test-utils"]
+
+[[test]]
+name = "anthropic_streaming"
+required-features = ["test-utils"]

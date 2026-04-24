@@ -12,10 +12,10 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [x] **Classifier threshold boundary test** — verify near-threshold prompts route to `Other` deterministically. *(QA R1 Medium #7)*
 - [x] **Doc `StreamingAccumulator` Drop-emit idempotency** — comment the atomic-CAS invariant. *(QA R2 Low #1)*
 
-## Session 2 Slice 3 — Schema + security
+## Session 2 Slice 3 — Schema + security (✅ shipped)
 
-- [ ] **Attribution tags → `Option<String>`** — distinguish missing header from empty-string value. Schema churn; needs LogRecord migration note. *(QA R1 Medium #6)*
-- [ ] **Gate `test_sink` behind `cfg(test)` or `test-utils` feature** — current unconditional exposure is fine for a private crate but not for a published one. *(QA R2 Low #2)*
+- [x] **Attribution tags → `Option<String>`** — distinguish missing header from empty-string value. *(QA R1 Medium #6)*
+- [x] **Gate `test_sink` behind `test-utils` feature** — production builds no longer carry the log-sink API surface. *(QA R2 Low #2)*
 
 ## Session 2 Slice 4+ — Real scope (PRD §8 roadmap)
 
@@ -39,3 +39,4 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [x] Session 1: universal proxy + Semantic Token Clustering v1 — [`31af3cc`](https://github.com/sdeanesh-png/Tokenova/commit/31af3cc)
 - [x] Session 2 Slice 1: streaming token accounting + QA-round-1 blockers/highs — [`c780206`](https://github.com/sdeanesh-png/Tokenova/commit/c780206)
 - [x] Session 2 Slice 2: handler dedupe, inline classifier, header-drop warn, threshold test, Drop-emit docs — [`1f0456e`](https://github.com/sdeanesh-png/Tokenova/commit/1f0456e)
+- [x] Session 2 Slice 3: attribution `Option<String>` + `test_sink` feature gate — pending commit

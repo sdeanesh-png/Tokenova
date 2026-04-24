@@ -11,18 +11,28 @@ use uuid::Uuid;
 /// Attribution tags extracted from `x-tokenova-*` request headers.
 ///
 /// Required by PRD §5.1.1 ("Attribution tagging: user, team, department,
-/// project, application, cost center, environment"). Missing headers are
-/// empty strings rather than errors — the drop-in SDK promise means we cannot
-/// reject requests that lack tags.
+/// project, application, cost center, environment"). Missing headers
+/// serialize as `null`; headers present with an empty value serialize as
+/// `""`. This distinction matters for billing analytics — the drop-in
+/// SDK promise means we cannot reject requests that lack tags, but we
+/// must not lose the signal that a caller didn't send one either
+/// (QA R1 Medium #6).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttributionTags {
-    pub user: String,
-    pub team: String,
-    pub department: String,
-    pub project: String,
-    pub application: String,
-    pub cost_center: String,
-    pub environment: String,
+    #[serde(default)]
+    pub user: Option<String>,
+    #[serde(default)]
+    pub team: Option<String>,
+    #[serde(default)]
+    pub department: Option<String>,
+    #[serde(default)]
+    pub project: Option<String>,
+    #[serde(default)]
+    pub application: Option<String>,
+    #[serde(default)]
+    pub cost_center: Option<String>,
+    #[serde(default)]
+    pub environment: Option<String>,
 }
 
 /// Which upstream provider handled the call.
