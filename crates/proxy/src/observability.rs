@@ -32,4 +32,54 @@ pub fn emit_log_record(record: &LogRecord) {
         Ok(json) => tracing::info!(target: "tokenova.request", record = %json),
         Err(err) => tracing::error!(?err, "failed to serialize LogRecord"),
     }
+
+    test_sink::dispatch(record);
+}
+
+/// Test-log-capture mechanism: lets tests (unit or integration) register a
+/// sink that receives every `LogRecord` emitted by `emit_log_record`. This
+/// is exposed unconditionally — a single `OnceLock` + `RwLock` read per log
+/// with no registered sink is a ~nanosecond cost and keeps the API usable
+/// from integration tests under `crates/proxy/tests/` (which compile the
+/// library without `cfg(test)`).
+pub mod test_sink {
+    use std::sync::{Arc, OnceLock, RwLock};
+
+    use tokenova_domain::LogRecord;
+
+    type Sink = Arc<dyn Fn(&LogRecord) + Send + Sync>;
+
+    fn cell() -> &'static RwLock<Option<Sink>> {
+        static CELL: OnceLock<RwLock<Option<Sink>>> = OnceLock::new();
+        CELL.get_or_init(|| RwLock::new(None))
+    }
+
+    /// Register a sink that will be invoked for every emitted `LogRecord`.
+    /// Overwrites any previously registered sink.
+    pub fn set_test_sink<F>(sink: F)
+    where
+        F: Fn(&LogRecord) + Send + Sync + 'static,
+    {
+        let mut guard = cell().write().expect("test sink lock poisoned");
+        *guard = Some(Arc::new(sink));
+    }
+
+    /// Remove any previously registered sink.
+    pub fn clear_test_sink() {
+        let mut guard = cell().write().expect("test sink lock poisoned");
+        *guard = None;
+    }
+
+    pub(super) fn dispatch(record: &LogRecord) {
+        // Clone the Arc out of the lock so the sink itself runs without
+        // holding the RwLock — sinks might do arbitrary work and we don't
+        // want to deadlock with a concurrent set/clear.
+        let sink = {
+            let guard = cell().read().expect("test sink lock poisoned");
+            guard.clone()
+        };
+        if let Some(sink) = sink {
+            sink(record);
+        }
+    }
 }

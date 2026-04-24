@@ -55,7 +55,10 @@ impl TokenUsage {
         Self {
             prompt_tokens: prompt,
             completion_tokens: completion,
-            total_tokens: prompt + completion,
+            // Saturating sum so a clamp-to-u32::MAX on one side (see
+            // `crate::usage::clamp_u64_to_u32`) doesn't panic on overflow
+            // when computing the total.
+            total_tokens: prompt.saturating_add(completion),
         }
     }
 }
@@ -124,4 +127,17 @@ pub struct LogRecord {
     pub latency_added_ms: f64,
     pub upstream_status: u16,
     pub streamed: bool,
+    /// True when a streaming response ended without the provider's canonical
+    /// completion marker (OpenAI: no `[DONE]`; Anthropic: no `message_stop`).
+    /// Always false for non-streaming requests.
+    #[serde(default)]
+    pub stream_truncated: bool,
+    /// True when the upstream byte stream yielded an error mid-flight.
+    /// Always false for non-streaming requests.
+    #[serde(default)]
+    pub stream_error: bool,
+    /// Total wall time from proxy receiving the request to the upstream
+    /// stream closing. `None` for non-streaming requests.
+    #[serde(default)]
+    pub stream_duration_ms: Option<f64>,
 }

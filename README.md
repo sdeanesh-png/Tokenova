@@ -129,6 +129,28 @@ consumed by the proxy and redacted from the outgoing request.
 
 ---
 
+## What Tokenova modifies in your requests
+
+Tokenova is designed as a drop-in passthrough: request bodies are forwarded
+to the upstream provider byte-for-byte with one narrow exception.
+
+**OpenAI streaming requests** (`/v1/chat/completions` with `"stream": true`):
+if `stream_options.include_usage` is not present, Tokenova sets it to
+`true`. This is required so OpenAI emits the terminal `usage` frame that
+Tokenova needs to report per-request token counts and cost for streaming
+responses. Industry peers (LiteLLM, Portkey, Helicone) do the same thing
+for the same reason.
+
+- If the client already set `stream_options.include_usage = true`, the body
+  is forwarded unchanged.
+- If the client explicitly set `stream_options.include_usage = false`,
+  Tokenova **respects that choice**. The body is forwarded unchanged, a
+  structured warning is logged, and the resulting `LogRecord` for that
+  request will have `usage.prompt_tokens` and `usage.completion_tokens`
+  equal to zero (but `streamed: true`).
+- No other mutation is performed. Non-streaming requests and streaming
+  requests that already carry `include_usage` flow through byte-identical.
+
 ## Classifier backends
 
 The `Embedder` trait has two implementations:

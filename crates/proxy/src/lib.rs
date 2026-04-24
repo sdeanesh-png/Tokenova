@@ -10,6 +10,7 @@ pub mod observability;
 pub mod pricing;
 pub mod router;
 pub mod state;
+pub mod streaming;
 pub mod upstream;
 pub mod usage;
 
