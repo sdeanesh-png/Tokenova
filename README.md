@@ -126,12 +126,60 @@ consumed by the proxy and redacted from the outgoing request.
 | `TOKENOVA_OPENAI_UPSTREAM` | `https://api.openai.com` | OpenAI base URL |
 | `TOKENOVA_ANTHROPIC_UPSTREAM` | `https://api.anthropic.com` | Anthropic base URL |
 | `TOKENOVA_AZURE_UPSTREAM` | *(unset)* | Azure OpenAI resource base URL, e.g. `https://my-resource.openai.azure.com`. When unset, Azure routes return `503 Service Unavailable`. |
+| `TOKENOVA_DATABASE_URL` | *(unset)* | Postgres / TimescaleDB connection string. When unset, durable persistence is disabled — `LogRecord`s only go to stdout. |
+| `TOKENOVA_PERSISTENCE_BATCH_SIZE` | `100` | Records per INSERT batch. |
+| `TOKENOVA_PERSISTENCE_FLUSH_MS` | `500` | Max ms between INSERTs even if the batch isn't full. |
 | `TOKENOVA_LOG_FORMAT` | `json` | `json` or `pretty` |
 | `TOKENOVA_LOG` | `info` | `tracing` filter directive |
 | `TOKENOVA_SENTRY_DSN` | *(unset)* | Sentry DSN. When unset, Sentry is a no-op — no outbound connections, no panic hook, no overhead. |
 | `TOKENOVA_SENTRY_ENVIRONMENT` | `development` | Environment label reported to Sentry (`production`, `staging`, etc.) |
 | `TOKENOVA_SENTRY_RELEASE` | `tokenova-proxy@<version>` | Release tag for deploy correlation |
 | `TOKENOVA_SENTRY_TRACES_SAMPLE_RATE` | `0.0` | Transaction sampling rate (0.0–1.0). `0.0` disables Sentry performance monitoring. |
+
+### Durable persistence (Postgres / TimescaleDB)
+
+Set `TOKENOVA_DATABASE_URL` to a Postgres connection string and every
+`LogRecord` is also written to a `log_records` table. Migrations run at
+startup and are idempotent. The schema is the same shape as the JSON
+log line you already see on stdout — one row per request, with
+attribution tags, token counts, USD cost, intent classification, and
+streaming flags.
+
+If the database has the TimescaleDB extension installed, the
+`log_records` table is automatically converted to a hypertable
+partitioned on `received_at` for efficient time-range queries. On plain
+Postgres it stays a regular table — no manual migration needed.
+
+The write path is fire-and-forget: a sync `mpsc` send on the request
+hot path, drained by a background task that batches up to
+`TOKENOVA_PERSISTENCE_BATCH_SIZE` records or flushes every
+`TOKENOVA_PERSISTENCE_FLUSH_MS` milliseconds. DB downtime never blocks
+a proxied request — failed batches are logged at `error` and dropped
+(stdout still has them).
+
+```bash
+# Local TimescaleDB via Docker:
+docker run -d --name tokenova-db \
+  -p 5432:5432 \
+  -e POSTGRES_PASSWORD=tokenova \
+  timescale/timescaledb:latest-pg16
+
+TOKENOVA_DATABASE_URL=postgres://postgres:tokenova@localhost:5432/postgres \
+  cargo run --release -p tokenova-proxy
+```
+
+Sample query: spend by team over the last 24h.
+
+```sql
+SELECT attribution_team,
+       SUM(cost_usd)             AS total_usd,
+       SUM(prompt_tokens + completion_tokens) AS total_tokens
+  FROM log_records
+ WHERE received_at >= NOW() - INTERVAL '24 hours'
+   AND attribution_team IS NOT NULL
+ GROUP BY attribution_team
+ ORDER BY total_usd DESC;
+```
 
 ### Error tracking (Sentry)
 

@@ -19,7 +19,7 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 
 ## Session 2 Slice 4+ — Real scope (PRD §8 roadmap)
 
-- [ ] TimescaleDB persistence for `LogRecord` stream
+- [x] ~~TimescaleDB persistence for `LogRecord` stream~~ (shipped)
 - [ ] Control-plane dashboard scaffold (Next.js 14, PRD §6.2)
 - [x] ~~Sentry wiring across proxy~~ (shipped); dashboard wiring deferred until dashboard exists *(PRD §10.5)*
 - [ ] PostHog wiring *(PRD §10.5)*
@@ -42,3 +42,4 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [x] Session 2 Slice 3: attribution `Option<String>` + `test_sink` feature gate — [`9a42958`](https://github.com/sdeanesh-png/Tokenova/commit/9a42958)
 - [x] Session 2 Slice 4: Sentry wiring (DSN-gated, no-op when unset) — [`6a374b3`](https://github.com/sdeanesh-png/Tokenova/commit/6a374b3)
 - [x] Session 2 Slice 5: Azure OpenAI provider (deployment-based URLs, path+query passthrough, streaming + buffered, tests) — [`32f54f9`](https://github.com/sdeanesh-png/Tokenova/commit/32f54f9)
+- [x] Session 2 Slice 6: Postgres / TimescaleDB persistence (batched writer, hypertable migration, fire-and-forget) — pending commit

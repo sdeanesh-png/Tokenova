@@ -25,8 +25,25 @@ async fn run(config: tokenova_proxy::config::Config) -> anyhow::Result<()> {
         anthropic = %config.anthropic_upstream,
         azure = ?config.azure_upstream,
         sentry = config.sentry_dsn.is_some(),
+        persistence = config.database_url.is_some(),
         "tokenova-proxy starting",
     );
+
+    // Optional durable persistence. When TOKENOVA_DATABASE_URL is unset
+    // this is skipped entirely — `LogRecord`s only reach stdout.
+    if let Some(database_url) = config.database_url.clone() {
+        let cfg = tokenova_proxy::persistence::PostgresSinkConfig {
+            database_url,
+            max_connections: 8,
+            batch_size: config.persistence_batch_size,
+            flush_interval: std::time::Duration::from_millis(config.persistence_flush_ms),
+        };
+        let sink = tokenova_proxy::persistence::PostgresSink::start(cfg)
+            .await
+            .context("starting Postgres persistence sink")?;
+        tokenova_proxy::persistence::install_sink(sink);
+        tracing::info!("durable persistence enabled");
+    }
 
     let state = AppState::new(
         config.openai_upstream.clone(),

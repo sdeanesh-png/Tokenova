@@ -7,6 +7,7 @@ pub mod attribution;
 pub mod config;
 pub mod handlers;
 pub mod observability;
+pub mod persistence;
 pub mod pricing;
 pub mod router;
 pub mod state;

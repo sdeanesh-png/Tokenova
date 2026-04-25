@@ -87,6 +87,10 @@ pub fn emit_log_record(record: &LogRecord) {
         Err(err) => tracing::error!(?err, "failed to serialize LogRecord"),
     }
 
+    // Forward to the durable sink (if installed). No-op when no
+    // database is configured. See [`crate::persistence`].
+    crate::persistence::dispatch(record);
+
     #[cfg(any(test, feature = "test-utils"))]
     test_sink::dispatch(record);
 }

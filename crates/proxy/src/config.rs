@@ -18,6 +18,15 @@ pub struct Config {
     /// a proxy with no Azure configuration shouldn't expose routes that
     /// would forward to an unintended upstream.
     pub azure_upstream: Option<String>,
+    /// Postgres / TimescaleDB connection string. When unset, durable
+    /// persistence is disabled — `LogRecord`s still go to stdout via
+    /// `tracing` but nothing writes to a database.
+    pub database_url: Option<String>,
+    /// How many records to batch per INSERT. Higher = better throughput,
+    /// worse latency-to-visible. 100 is a reasonable default.
+    pub persistence_batch_size: usize,
+    /// Maximum delay between INSERTs even if the batch isn't full.
+    pub persistence_flush_ms: u64,
     pub log_format: LogFormat,
     /// Sentry DSN. When unset, Sentry is not initialized and the proxy
     /// runs with zero Sentry overhead — this is the default for tests
@@ -56,6 +65,20 @@ impl Config {
             .ok()
             .filter(|s| !s.trim().is_empty());
 
+        let database_url = env::var("TOKENOVA_DATABASE_URL")
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let persistence_batch_size = env::var("TOKENOVA_PERSISTENCE_BATCH_SIZE")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(100);
+        let persistence_flush_ms = env::var("TOKENOVA_PERSISTENCE_FLUSH_MS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(500);
+
         let log_format = match env::var("TOKENOVA_LOG_FORMAT").unwrap_or_default().as_str() {
             "pretty" => LogFormat::Pretty,
             _ => LogFormat::Json,
@@ -79,6 +102,9 @@ impl Config {
             openai_upstream,
             anthropic_upstream,
             azure_upstream,
+            database_url,
+            persistence_batch_size,
+            persistence_flush_ms,
             log_format,
             sentry_dsn,
             sentry_environment,
