@@ -42,4 +42,4 @@ Low/medium tech debt surfaced by QA rounds 1 & 2. Small surgical changes, same f
 - [x] Session 2 Slice 3: attribution `Option<String>` + `test_sink` feature gate — [`9a42958`](https://github.com/sdeanesh-png/Tokenova/commit/9a42958)
 - [x] Session 2 Slice 4: Sentry wiring (DSN-gated, no-op when unset) — [`6a374b3`](https://github.com/sdeanesh-png/Tokenova/commit/6a374b3)
 - [x] Session 2 Slice 5: Azure OpenAI provider (deployment-based URLs, path+query passthrough, streaming + buffered, tests) — [`32f54f9`](https://github.com/sdeanesh-png/Tokenova/commit/32f54f9)
-- [x] Session 2 Slice 6: Postgres / TimescaleDB persistence (batched writer, hypertable migration, fire-and-forget) — pending commit
+- [x] Session 2 Slice 6: Postgres / TimescaleDB persistence (batched writer, hypertable migration, fire-and-forget) — [`b39dcb1`](https://github.com/sdeanesh-png/Tokenova/commit/b39dcb1)
